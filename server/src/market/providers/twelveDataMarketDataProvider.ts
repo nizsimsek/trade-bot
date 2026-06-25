@@ -32,6 +32,9 @@ interface TwelveDataPriceMessage {
   timestamp?: number;
 }
 
+const RATE_LIMIT_RETRY_MS = 60_000;
+const TRANSIENT_RETRY_MS = 15_000;
+
 export class TwelveDataMarketDataProvider implements MarketDataProvider {
   private socket: WebSocket | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -62,7 +65,7 @@ export class TwelveDataMarketDataProvider implements MarketDataProvider {
   }
 
   async getHistory(count: number): Promise<Candle[]> {
-    const candles = await this.fetchCandles(count);
+    const candles = await this.fetchCandlesWithRetry(count);
     this.latestCandle = candles.at(-1) ?? null;
     return candles;
   }
@@ -87,6 +90,29 @@ export class TwelveDataMarketDataProvider implements MarketDataProvider {
     return pending;
   }
 
+  private async fetchCandlesWithRetry(outputSize: number): Promise<Candle[]> {
+    while (true) {
+      try {
+        return await this.fetchCandles(outputSize);
+      } catch (error) {
+        if (error instanceof TwelveDataHttpError && error.status === 429) {
+          const retryAfter = error.retryAfterMs ?? RATE_LIMIT_RETRY_MS;
+          console.warn(`Twelve Data rate limit doldu. ${Math.round(retryAfter / 1000)} sn sonra history tekrar denenecek.`);
+          await sleep(retryAfter);
+          continue;
+        }
+
+        if (error instanceof TwelveDataHttpError && error.status >= 500) {
+          console.warn(`Twelve Data gecici HTTP ${error.status}. ${Math.round(TRANSIENT_RETRY_MS / 1000)} sn sonra history tekrar denenecek.`);
+          await sleep(TRANSIENT_RETRY_MS);
+          continue;
+        }
+
+        throw error;
+      }
+    }
+  }
+
   private async fetchCandles(outputSize: number): Promise<Candle[]> {
     const url = new URL("/time_series", this.options.baseUrl);
     url.searchParams.set("symbol", this.options.symbol);
@@ -97,7 +123,11 @@ export class TwelveDataMarketDataProvider implements MarketDataProvider {
 
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`Twelve Data HTTP ${response.status}: ${response.statusText}`);
+      throw new TwelveDataHttpError(
+        response.status,
+        response.statusText,
+        parseRetryAfterMs(response.headers.get("retry-after"))
+      );
     }
 
     const payload = (await response.json()) as TwelveDataTimeSeriesResponse;
@@ -208,6 +238,16 @@ export class TwelveDataMarketDataProvider implements MarketDataProvider {
   }
 }
 
+class TwelveDataHttpError extends Error {
+  constructor(
+    readonly status: number,
+    statusText: string,
+    readonly retryAfterMs: number | null
+  ) {
+    super(`Twelve Data HTTP ${status}: ${statusText}`);
+  }
+}
+
 function parseTwelveDataTime(value: string): number {
   const hasExplicitTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
   const normalized = hasExplicitTimezone ? value : `${value.replace(" ", "T")}Z`;
@@ -217,6 +257,22 @@ function parseTwelveDataTime(value: string): number {
 function normalizeTickTimestamp(value?: number): number | null {
   if (!value) return Math.floor(Date.now() / 1000);
   return value > 1_000_000_000_000 ? Math.floor(value / 1000) : Math.floor(value);
+}
+
+function parseRetryAfterMs(value: string | null): number | null {
+  if (!value) return null;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(1_000, seconds * 1_000);
+
+  const date = Date.parse(value);
+  if (!Number.isFinite(date)) return null;
+
+  return Math.max(1_000, date - Date.now());
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function intervalToSeconds(interval: string): number {
