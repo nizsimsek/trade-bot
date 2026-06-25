@@ -1,0 +1,37 @@
+{
+  "name": "xauusd-demo-trading-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx server/index.ts"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "lightweight-charts": "^5.0.8",
+    "lucide-react": "^0.468.0",
+    "mysql2": "^3.22.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sonner": "^2.0.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^7.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/ws": "^8.5.13"
+  }
+}
