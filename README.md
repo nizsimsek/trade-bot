@@ -43,7 +43,7 @@ Adresler:
 
 ```text
 Frontend: http://127.0.0.1:3500/
-Backend:  http://127.0.0.1:8787/
+Backend:  http://127.0.0.1:3501/
 WebSocket: ws://127.0.0.1:3500/ws
 ```
 
@@ -281,7 +281,7 @@ Portlar:
 
 ```text
 3500 frontend
-8787 backend
+3501 backend
 ```
 
 Build kontrol:

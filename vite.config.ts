@@ -9,9 +9,9 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: ["tradebot.nizsimsek.dev"],
     proxy: {
-      "/api": "http://127.0.0.1:8787",
+      "/api": "http://127.0.0.1:3501",
       "/ws": {
-        target: "ws://127.0.0.1:8787",
+        target: "ws://127.0.0.1:3501",
         ws: true,
       },
     },
@@ -21,6 +21,13 @@ export default defineConfig({
     port: 3500,
     strictPort: true,
     allowedHosts: ["tradebot.nizsimsek.dev"],
+    proxy: {
+      "/api": "http://127.0.0.1:3501",
+      "/ws": {
+        target: "ws://127.0.0.1:3501",
+        ws: true,
+      },
+    },
   },
   build: {
     outDir: "dist",

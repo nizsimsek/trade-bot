@@ -36,7 +36,7 @@ export interface DatabaseConfig {
 
 export const serverConfig: ServerConfig = {
   host: process.env.HOST ?? "127.0.0.1",
-  port: Number(process.env.PORT ?? 8787),
+  port: Number(process.env.PORT ?? 3501),
   tickMs: Number(process.env.TICK_MS ?? 1000),
   jsonLimit: process.env.JSON_LIMIT ?? "12mb",
   marketData: {
