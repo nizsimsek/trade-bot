@@ -83,7 +83,7 @@ open ios/NizTradeBot.xcodeproj
 
 ```xml
 <key>DashboardURL</key>
-<string>http://tradebot.nizsimsek.dev:3500</string>
+<string>http://127.0.0.1:3500</string>
 ```
 
 Uygulama dashboard'u tam ekran acar ve dashboard host'u disindaki navigasyonlari engeller. Web tarafinda islem eventi geldiginde `window.webkit.messageHandlers.tradingNotification` uzerinden Swift'e mesaj gider. Swift tarafinda bu mesaj local notification olarak gosterilir. Bu cozum app acik/aktifken guvenilirdir; app tamamen background'da uzun sure suspend edilirse WebView JavaScript'i calismayabilir. Gercek arka plan bildirimi icin ileride server push + APNs gerekir.
