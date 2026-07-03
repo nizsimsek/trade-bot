@@ -2,6 +2,7 @@ import { DemoBroker } from "../broker/demoBroker.js";
 import type { AccountState, Candle, DashboardState, PerformanceStats } from "../domain/trading.js";
 import type { TradingDatabase } from "../database/tradingDatabase.js";
 import type { MarketDataProvider } from "../market/providers/marketDataProvider.js";
+import type { ApnsPushService } from "../push/apnsPushService.js";
 import { analyze } from "../strategy/xauUsdStrategy.js";
 import { round } from "../utils/math.js";
 
@@ -32,7 +33,8 @@ export class TradingService {
   constructor(
     private readonly marketDataProvider: MarketDataProvider,
     private readonly historyCandles: number,
-    private readonly database: TradingDatabase
+    private readonly database: TradingDatabase,
+    private readonly pushService?: ApnsPushService
   ) {}
 
   async initialize(): Promise<void> {
@@ -120,8 +122,13 @@ export class TradingService {
       saveAccountSnapshot: accountChanged,
       saveOpenPosition: positionChanged
     });
+    if (eventChanged) await this.notifyLatestEvent(beforeEventId);
     if (tradeChanged || accountChanged) await this.refreshPerformance();
     return this.getDashboardState();
+  }
+
+  async registerPushDevice(token: string): Promise<void> {
+    await this.pushService?.registerDevice(token);
   }
 
   private async persistCandles(candles: Candle[]): Promise<void> {
@@ -143,6 +150,12 @@ export class TradingService {
     if (options.saveEvents) await this.database.saveEvents(this.broker.events);
     if (options.saveAccountSnapshot) await this.database.saveAccountSnapshot(this.broker.account);
     if (options.saveOpenPosition) await this.database.saveOpenPosition(this.broker.openPosition);
+  }
+
+  private async notifyLatestEvent(previousEventId: string | null): Promise<void> {
+    const event = this.broker.events[0];
+    if (!event || event.id === previousEventId) return;
+    await this.pushService?.notifyTradingEvent(event);
   }
 
   private async restoreRuntimeState(): Promise<void> {
@@ -178,8 +191,8 @@ export class TradingService {
       realizedPnl: round(realizedPnl),
       openPnl,
       maxDrawdownPct: snapshot?.maxDrawdownPct ?? 0,
-      dailyLossLimitHit: snapshot?.dailyLossLimitHit ?? false,
-      riskPerTradePct: snapshot?.riskPerTradePct ?? 1,
+      dailyLossLimitHit: false,
+      riskPerTradePct: 5,
       maxLeverage: snapshot?.maxLeverage ?? 8
     };
   }

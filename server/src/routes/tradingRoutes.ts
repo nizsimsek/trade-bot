@@ -13,6 +13,7 @@ export function createTradingRoutes(options: CreateTradingRoutesOptions) {
   router.get("/state", controller.getState);
   router.get("/trades", controller.getTrades);
   router.get("/events/trading", controller.getTradingEvents);
+  router.post("/devices", controller.registerDevice);
 
   return router;
 }

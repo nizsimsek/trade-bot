@@ -25,8 +25,8 @@ export function AccountMetrics({ account }: AccountMetricsProps) {
         icon={<AlertTriangle />}
         label="Drawdown"
         value={`%${account.maxDrawdownPct.toFixed(2)}`}
-        detail={account.dailyLossLimitHit ? "Günlük limit aktif" : "Limit normal"}
-        tone={account.dailyLossLimitHit ? "bad" : "neutral"}
+        detail="Sadece takip"
+        tone="neutral"
       />
     </section>
   );

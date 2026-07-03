@@ -9,6 +9,7 @@ export interface ServerConfig {
   jsonLimit: string;
   marketData: MarketDataConfig;
   database: DatabaseConfig;
+  push: PushConfig;
 }
 
 export interface MarketDataConfig {
@@ -32,6 +33,15 @@ export interface DatabaseConfig {
   connectionLimit: number;
   connectTimeoutMs: number;
   autoMigrate: boolean;
+}
+
+export interface PushConfig {
+  enabled: boolean;
+  apnsKeyId?: string;
+  apnsTeamId?: string;
+  apnsBundleId?: string;
+  apnsAuthKeyPath?: string;
+  apnsProduction: boolean;
 }
 
 export const serverConfig: ServerConfig = {
@@ -59,5 +69,13 @@ export const serverConfig: ServerConfig = {
     connectionLimit: Number(process.env.DB_CONNECTION_LIMIT ?? 10),
     connectTimeoutMs: Number(process.env.DB_CONNECT_TIMEOUT_MS ?? 5000),
     autoMigrate: process.env.DB_AUTO_MIGRATE !== "false"
+  },
+  push: {
+    enabled: process.env.PUSH_ENABLED === "true",
+    apnsKeyId: process.env.APNS_KEY_ID,
+    apnsTeamId: process.env.APNS_TEAM_ID,
+    apnsBundleId: process.env.APNS_BUNDLE_ID,
+    apnsAuthKeyPath: process.env.APNS_AUTH_KEY_PATH,
+    apnsProduction: process.env.APNS_PRODUCTION === "true"
   }
 };

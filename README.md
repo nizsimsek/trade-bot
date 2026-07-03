@@ -88,6 +88,21 @@ open ios/NizTradeBot.xcodeproj
 
 Uygulama dashboard'u tam ekran acar ve dashboard host'u disindaki navigasyonlari engeller. Web tarafinda islem eventi geldiginde `window.webkit.messageHandlers.tradingNotification` uzerinden Swift'e mesaj gider. Swift tarafinda bu mesaj local notification olarak gosterilir. Bu cozum app acik/aktifken guvenilirdir; app tamamen background'da uzun sure suspend edilirse WebView JavaScript'i calismayabilir. Gercek arka plan bildirimi icin ileride server push + APNs gerekir.
 
+App tamamen kapaliyken bildirim almak icin APNs remote push kullanilir. Xcode'da Bundle ID icin Push Notifications capability acik olmali. `ios/NizTradeBot/NizTradeBot.entitlements` gelistirme icin `aps-environment=development` olarak gelir; TestFlight/App Store icin production imza ayarina gore Apple tarafini hazirla.
+
+Backend APNs ayarlari:
+
+```env
+PUSH_ENABLED=true
+APNS_KEY_ID=XXXXXXXXXX
+APNS_TEAM_ID=XXXXXXXXXX
+APNS_BUNDLE_ID=com.nizamettin.NizTradeBot
+APNS_AUTH_KEY_PATH=/var/www/trade-bot/AuthKey_XXXXXXXXXX.p8
+APNS_PRODUCTION=false
+```
+
+iOS app izin alinca APNs device token'i `/api/devices` endpoint'ine kaydeder. Bot `entry` veya `exit` eventi urettiginde backend kayitli iOS tokenlara APNs remote push gonderir.
+
 Production build:
 
 ```bash

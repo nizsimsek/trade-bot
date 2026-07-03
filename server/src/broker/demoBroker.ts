@@ -2,9 +2,8 @@ import type { AccountState, BotEvent, Candle, Position, StrategySignal, Trade } 
 import { round } from "../utils/math.js";
 
 const STARTING_BALANCE = 100;
-const RISK_PER_TRADE_PCT = 1;
+const RISK_PER_TRADE_PCT = 5;
 const MAX_LEVERAGE = 8;
-const DAILY_LOSS_LIMIT_PCT = 4;
 const MAX_HISTORY_ITEMS = 5;
 const EXIT_SLIPPAGE = 0.1;
 const ROUND_TRIP_COMMISSION_RATE = 0.00004;
@@ -13,7 +12,6 @@ interface DemoBrokerOptions {
   startingBalance?: number;
   riskPerTradePct?: number;
   maxLeverage?: number;
-  lossLimitPct?: number;
   maxHistoryItems?: number;
   label?: string;
   account?: AccountState;
@@ -30,18 +28,20 @@ export class DemoBroker {
   private readonly startingBalance: number;
   private readonly riskPerTradePct: number;
   private readonly maxLeverage: number;
-  private readonly lossLimitPct: number;
   private readonly maxHistoryItems: number;
   private peakEquity: number;
 
   constructor(options: DemoBrokerOptions = {}) {
     this.startingBalance = options.account?.startingBalance ?? options.startingBalance ?? STARTING_BALANCE;
-    this.riskPerTradePct = options.account?.riskPerTradePct ?? options.riskPerTradePct ?? RISK_PER_TRADE_PCT;
+    this.riskPerTradePct = options.riskPerTradePct ?? RISK_PER_TRADE_PCT;
     this.maxLeverage = options.account?.maxLeverage ?? options.maxLeverage ?? MAX_LEVERAGE;
-    this.lossLimitPct = options.lossLimitPct ?? DAILY_LOSS_LIMIT_PCT;
     this.maxHistoryItems = options.maxHistoryItems ?? MAX_HISTORY_ITEMS;
     this.peakEquity = this.startingBalance;
-    this.account = options.account ?? {
+    this.account = options.account ? {
+      ...options.account,
+      dailyLossLimitHit: false,
+      riskPerTradePct: this.riskPerTradePct
+    } : {
       startingBalance: this.startingBalance,
       balance: this.startingBalance,
       equity: this.startingBalance,
@@ -70,14 +70,6 @@ export class DemoBroker {
     this.markToMarket(candle.close);
     this.tryExit(candle);
     this.updateDrawdown();
-
-    if (this.account.balance <= this.startingBalance * (1 - this.lossLimitPct / 100)) {
-      if (!this.account.dailyLossLimitHit) {
-        this.account.dailyLossLimitHit = true;
-        this.pushEvent("risk", "Zarar limiti", `Hesap %${this.lossLimitPct} zarar sınırına geldiği için yeni işlem durduruldu.`, candle.time);
-      }
-      return;
-    }
 
     if (this.openPosition || !signal.proposedTrade || signal.action === "hold") return;
     this.open(signal, candle.time);

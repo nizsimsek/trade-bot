@@ -3,12 +3,14 @@ import { serverConfig } from "./src/config/env.js";
 import { createTradingDatabase } from "./src/database/createTradingDatabase.js";
 import { createApp } from "./src/http/createApp.js";
 import { createMarketDataProvider } from "./src/market/providers/createMarketDataProvider.js";
+import { ApnsPushService } from "./src/push/apnsPushService.js";
 import { createStateBroadcaster } from "./src/realtime/stateBroadcaster.js";
 import { TradingService } from "./src/services/tradingService.js";
 
 const database = await createTradingDatabase(serverConfig.database);
 const marketDataProvider = createMarketDataProvider(serverConfig.marketData);
-const tradingService = new TradingService(marketDataProvider, serverConfig.marketData.historyCandles, database);
+const pushService = new ApnsPushService(serverConfig.push, database);
+const tradingService = new TradingService(marketDataProvider, serverConfig.marketData.historyCandles, database, pushService);
 await tradingService.initialize();
 
 const app = createApp({

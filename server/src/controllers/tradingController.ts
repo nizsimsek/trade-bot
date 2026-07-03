@@ -17,6 +17,17 @@ export function createTradingController({ tradingService }: TradingControllerOpt
 
     async getTradingEvents(request: Request, response: Response) {
       response.json(await tradingService.getTradingEventsPage(readNumber(request.query.limit), readNumber(request.query.offset)));
+    },
+
+    async registerDevice(request: Request, response: Response) {
+      const token = readString(request.body?.token);
+      if (!token) {
+        response.status(400).json({ error: "token zorunlu" });
+        return;
+      }
+
+      await tradingService.registerPushDevice(token);
+      response.status(204).end();
     }
   };
 }
@@ -25,4 +36,10 @@ function readNumber(value: unknown): number | undefined {
   if (typeof value !== "string") return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : undefined;
 }

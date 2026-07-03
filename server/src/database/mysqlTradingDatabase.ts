@@ -165,6 +165,32 @@ export class MySqlTradingDatabase implements TradingDatabase {
     );
   }
 
+  async savePushDevice(token: string, platform: "ios"): Promise<void> {
+    const pool = this.requirePool();
+    await pool.query(
+      `INSERT INTO push_devices (token, platform, enabled, updated_at)
+       VALUES (?, ?, TRUE, ?)
+       ON DUPLICATE KEY UPDATE
+         platform = VALUES(platform),
+         enabled = TRUE,
+         updated_at = VALUES(updated_at)`,
+      [token, platform, Math.floor(Date.now() / 1000)]
+    );
+  }
+
+  async loadPushDeviceTokens(platform?: "ios"): Promise<string[]> {
+    const pool = this.requirePool();
+    const [rows] = await pool.query(
+      `SELECT token
+       FROM push_devices
+       WHERE enabled = TRUE ${platform ? "AND platform = ?" : ""}
+       ORDER BY updated_at DESC`,
+      platform ? [platform] : []
+    );
+
+    return (rows as Array<Record<string, unknown>>).map((row) => String(row.token));
+  }
+
   async loadTradesPage(limit: number, offset: number): Promise<Trade[]> {
     const pool = this.requirePool();
     const [rows] = await pool.query(
@@ -401,6 +427,13 @@ export class MySqlTradingDatabase implements TradingDatabase {
         daily_loss_limit_hit BOOLEAN NOT NULL,
         risk_per_trade_pct DECIMAL(10,5) NOT NULL,
         max_leverage DECIMAL(10,5) NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS push_devices (
+        token VARCHAR(255) NOT NULL PRIMARY KEY,
+        platform VARCHAR(16) NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        updated_at INT UNSIGNED NOT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`
     ];

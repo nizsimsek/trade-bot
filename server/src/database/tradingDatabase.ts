@@ -14,6 +14,8 @@ export interface TradingDatabase {
   saveEvents(events: BotEvent[]): Promise<void>;
   saveAccountSnapshot(account: AccountState): Promise<void>;
   saveOpenPosition(position: Position | null): Promise<void>;
+  savePushDevice(token: string, platform: "ios"): Promise<void>;
+  loadPushDeviceTokens(platform?: "ios"): Promise<string[]>;
   loadTradesPage(limit: number, offset: number): Promise<Trade[]>;
   loadEventsPage(limit: number, offset: number, kinds?: BotEvent["kind"][]): Promise<BotEvent[]>;
   loadLatestAccountSnapshot(): Promise<AccountState | null>;
