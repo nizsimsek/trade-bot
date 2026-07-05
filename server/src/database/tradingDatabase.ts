@@ -10,6 +10,7 @@ export interface TradingDatabase {
   getStatus(): DatabaseStatus;
   initialize(): Promise<void>;
   saveCandles(candles: Candle[], context: CandleWriteContext): Promise<void>;
+  loadRecentCandles(context: CandleWriteContext, limit: number): Promise<Candle[]>;
   saveTrades(trades: Trade[]): Promise<void>;
   saveEvents(events: BotEvent[]): Promise<void>;
   saveAccountSnapshot(account: AccountState): Promise<void>;

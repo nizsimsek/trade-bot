@@ -34,6 +34,7 @@ interface TwelveDataPriceMessage {
 
 const RATE_LIMIT_RETRY_MS = 60_000;
 const TRANSIENT_RETRY_MS = 15_000;
+const STALE_TICK_SECONDS = 120;
 
 export class TwelveDataMarketDataProvider implements MarketDataProvider {
   private socket: WebSocket | null = null;
@@ -49,18 +50,20 @@ export class TwelveDataMarketDataProvider implements MarketDataProvider {
   constructor(private readonly options: TwelveDataProviderOptions) {}
 
   getStatus(): MarketDataStatus {
+    const now = Math.floor(Date.now() / 1000);
+    const tickAge = this.lastTickAt ? now - this.lastTickAt : null;
+    const isStale = tickAge !== null && tickAge > STALE_TICK_SECONDS;
+
     return {
       provider: "twelvedata",
       symbol: this.options.symbol,
       interval: this.options.interval,
-      isLive: this.connected,
+      isLive: this.connected && !isStale,
       source: this.options.wsUrl,
       transport: "websocket",
       lastPrice: this.lastPrice,
       lastTickAt: this.lastTickAt,
-      message: this.connected
-        ? "Twelve Data WebSocket ile canli fiyat tick'i aliniyor."
-        : "Twelve Data WebSocket baglantisi bekleniyor."
+      message: this.getStatusMessage(isStale, tickAge)
     };
   }
 
@@ -235,6 +238,15 @@ export class TwelveDataMarketDataProvider implements MarketDataProvider {
     if (!this.heartbeatTimer) return;
     clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
+  }
+
+  private getStatusMessage(isStale: boolean, tickAge: number | null): string {
+    if (!this.connected) return "Twelve Data WebSocket baglantisi bekleniyor.";
+    if (isStale) {
+      return `WebSocket bagli ama son price tick ${tickAge} sn once geldi. Piyasa kapali veya veri akisi seyrek olabilir.`;
+    }
+
+    return "Twelve Data WebSocket ile canli fiyat tick'i aliniyor.";
   }
 }
 

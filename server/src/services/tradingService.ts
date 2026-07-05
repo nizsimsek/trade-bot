@@ -40,7 +40,8 @@ export class TradingService {
   async initialize(): Promise<void> {
     await this.restoreRuntimeState();
     await this.refreshPerformance();
-    this.candles = await this.marketDataProvider.getHistory(this.historyCandles);
+    const providerHistory = await this.marketDataProvider.getHistory(this.historyCandles);
+    this.candles = await this.mergeWithStoredHistory(providerHistory);
     this.lastAnalysis = analyze(this.candles);
     await this.persistCandles(this.candles);
     await this.persistRuntimeState({ saveEvents: true });
@@ -138,6 +139,26 @@ export class TradingService {
       interval: status.interval,
       source: status.provider
     });
+  }
+
+  private async mergeWithStoredHistory(providerHistory: Candle[]): Promise<Candle[]> {
+    const status = this.marketDataProvider.getStatus();
+    const storedHistory = await this.database.loadRecentCandles({
+      symbol: status.symbol,
+      interval: status.interval,
+      source: status.provider
+    }, this.historyCandles);
+    const byTime = new Map<number, Candle>();
+
+    for (const candle of storedHistory) byTime.set(candle.time, candle);
+    for (const candle of providerHistory) byTime.set(candle.time, candle);
+
+    const merged = [...byTime.values()].sort((a, b) => a.time - b.time).slice(-this.historyCandles);
+    if (merged.length < 200) {
+      console.warn(`History mum sayisi ${merged.length}. EMA200 icin en az 200 mum gerekiyor.`);
+    }
+
+    return merged;
   }
 
   private async persistRuntimeState(options: {

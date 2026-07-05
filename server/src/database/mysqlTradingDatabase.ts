@@ -78,6 +78,29 @@ export class MySqlTradingDatabase implements TradingDatabase {
     );
   }
 
+  async loadRecentCandles(context: CandleWriteContext, limit: number): Promise<Candle[]> {
+    const pool = this.requirePool();
+    const [rows] = await pool.query(
+      `SELECT time, open, high, low, close, volume
+       FROM market_candles
+       WHERE symbol = ? AND interval_name = ? AND source = ?
+       ORDER BY time DESC
+       LIMIT ?`,
+      [context.symbol, context.interval, context.source, limit]
+    );
+
+    return (rows as Array<Record<string, unknown>>)
+      .map((row) => ({
+        time: Number(row.time),
+        open: Number(row.open),
+        high: Number(row.high),
+        low: Number(row.low),
+        close: Number(row.close),
+        volume: Number(row.volume)
+      }))
+      .sort((a, b) => a.time - b.time);
+  }
+
   async saveTrades(trades: Trade[]): Promise<void> {
     if (!trades.length) return;
     const pool = this.requirePool();
