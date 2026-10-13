@@ -73,6 +73,12 @@ export class TwelveDataMarketDataProvider implements MarketDataProvider {
     return candles;
   }
 
+  async getRecentClosedCandles(count: number): Promise<Candle[]> {
+    const candles = await this.fetchCandles(count);
+    const currentBucket = Math.floor(Date.now() / 1000 / intervalToSeconds(this.options.interval)) * intervalToSeconds(this.options.interval);
+    return candles.filter((candle) => candle.time < currentBucket);
+  }
+
   start(): void {
     if (this.started) return;
     this.started = true;

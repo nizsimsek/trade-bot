@@ -46,7 +46,7 @@ export function TradesTable({
           {!openPosition && trades.length === 0 ? <p className="muted table-empty">Açık veya kapanan işlem yok.</p> : null}
           {trades.map((trade) => (
             <div className="table-row" key={trade.id}>
-              <span>{trade.outcome === "take-profit" ? "TP" : "SL"}</span>
+              <span>{trade.outcome === "take-profit" ? "TP" : trade.outcome === "time-exit" ? "SÜRE" : "SL"}</span>
               <span className={`side-text ${trade.side}`}>{trade.side.toUpperCase()}</span>
               <span>{formatTime(trade.openedAt)}</span>
               <span>{formatTime(trade.closedAt)}</span>

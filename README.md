@@ -218,18 +218,21 @@ server/src/strategy/xauUsdStrategy.ts
 
 Hesaplananlar:
 
-- EMA50
-- EMA200
-- RSI14
-- ATR14
-- Destek
-- Direnc
+- EMA50 / EMA200 (trend yonu)
+- ATR14 (Wilder)
+- 20 mumluk kirilim kanali (Donchian zirve/dip; grafikte destek/direnc olarak cizilir)
+- RSI14 (sadece bilgi)
 
-Karar mantigi:
+Karar mantigi (trend yonunde momentum kirilimi):
 
-- `buy`: Trend yukari, fiyat EMA50 civarinda, momentum uygun, hedefe alan var.
-- `sell`: Trend asagi, fiyat EMA50 civarinda, momentum uygun, hedefe alan var.
-- `hold`: Kurallar yeterince hizalanmadiyse islem yok.
+- `buy`: EMA50 > EMA200 ve kapanmis mum son 20 mumun zirvesinin ustunde kapandi.
+- `sell`: EMA50 < EMA200 ve kapanmis mum son 20 mumun dibinin altinda kapandi.
+- SL 1.5 ATR, TP 2.5 ATR, en fazla 60 dk acik kalir.
+- Rollover (20:45-22:15 UTC), Cuma 20:00 UTC sonrasi ve hafta sonu yeni islem acilmaz; Cuma 20:50 UTC'de acik pozisyon kapatilir.
+- Sinyal sadece kapanmis mumlarla, mum basina bir kez uretilir. Giris yeni mumun ilk tick'inde yapilir.
+- SL/TP sadece giristen sonra gelen tick fiyatlariyla kontrol edilir.
+
+Kapanmis mumlar `MARKET_REST_SYNC_SECONDS` (varsayilan 180 sn) araliklarla Twelve Data REST'ten gelen resmi OHLC ile duzeltilir. WebSocket tick'leri seyrek oldugu icin (mumlarin ~%37'si tek tick) sadece tick'ten kurulan mumlar gercek high/low'u kacirir ve ATR'yi ~2.5 kat kucuk gosterir.
 
 ## Demo Trading
 
@@ -243,8 +246,9 @@ Varsayilanlar:
 
 ```text
 Baslangic bakiye: 100 USD
-Islem basi risk: %1
+Islem basi risk: en fazla %2 (8x kaldirac limiti genelde once devreye girer)
 Maksimum kaldirac: 8x
+Gunluk zarar limiti: %6 (UTC gun sonuna kadar yeni islem yok)
 Ayni anda acik pozisyon: 1
 ```
 

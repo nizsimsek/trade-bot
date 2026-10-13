@@ -62,7 +62,7 @@ export interface Trade extends Position {
   exit: number;
   pnl: number;
   pnlPct: number;
-  outcome: "take-profit" | "stop-loss";
+  outcome: "take-profit" | "stop-loss" | "time-exit";
   durationCandles: number;
 }
 

@@ -1,4 +1,4 @@
-import { DemoBroker } from "../broker/demoBroker.js";
+import { DemoBroker, RISK_PER_TRADE_PCT } from "../broker/demoBroker.js";
 import type { AccountState, Candle, DashboardState, PerformanceStats } from "../domain/trading.js";
 import type { TradingDatabase } from "../database/tradingDatabase.js";
 import type { MarketDataProvider } from "../market/providers/marketDataProvider.js";
@@ -7,6 +7,7 @@ import { analyze } from "../strategy/xauUsdStrategy.js";
 import { round } from "../utils/math.js";
 
 const HISTORY_PAGE_SIZE = 5;
+const REST_SYNC_CANDLES = 30;
 const TRADING_EVENT_KINDS = ["entry", "exit", "system", "risk"] as const;
 
 const EMPTY_PERFORMANCE: PerformanceStats = {
@@ -29,12 +30,15 @@ export class TradingService {
   private candles: Candle[] = [];
   private lastAnalysis = analyze([]);
   private performance: PerformanceStats = EMPTY_PERFORMANCE;
+  private lastRestSyncAt = 0;
+  private restSyncRunning = false;
 
   constructor(
     private readonly marketDataProvider: MarketDataProvider,
     private readonly historyCandles: number,
     private readonly database: TradingDatabase,
-    private readonly pushService?: ApnsPushService
+    private readonly pushService?: ApnsPushService,
+    private readonly restSyncSeconds = 180
   ) {}
 
   async initialize(): Promise<void> {
@@ -42,8 +46,9 @@ export class TradingService {
     await this.refreshPerformance();
     const providerHistory = await this.marketDataProvider.getHistory(this.historyCandles);
     this.candles = await this.mergeWithStoredHistory(providerHistory);
-    this.lastAnalysis = analyze(this.candles);
-    await this.persistCandles(this.candles);
+    this.lastAnalysis = analyze(this.candles.slice(0, -1));
+    await this.persistCandles(providerHistory, { overwrite: true });
+    this.lastRestSyncAt = Date.now();
     await this.persistRuntimeState({ saveEvents: true });
     this.marketDataProvider.start();
   }
@@ -95,9 +100,10 @@ export class TradingService {
     if (!candle) return this.getDashboardState();
 
     const last = this.candles.at(-1);
+    const isNewCandle = !last || candle.time > last.time;
     if (last && candle.time === last.time) {
       this.candles[this.candles.length - 1] = candle;
-    } else if (!last || candle.time > last.time) {
+    } else if (isNewCandle) {
       this.candles.push(candle);
       this.candles.splice(0, Math.max(0, this.candles.length - 360));
     } else {
@@ -108,8 +114,14 @@ export class TradingService {
     const beforePositionId = this.broker.openPosition?.id ?? null;
     const beforeAccountKey = this.getAccountPersistenceKey();
 
-    this.lastAnalysis = analyze(this.candles);
-    this.broker.onCandle(candle, this.lastAnalysis.signal);
+    // Önce açık pozisyonun çıkışı güncel tick fiyatıyla kontrol edilir.
+    this.broker.onPrice(candle.close, candle.time);
+    // Sinyal mum başına bir kez, sadece kapanmış mumlarla üretilir (repaint yok).
+    // Giriş yeni mumun ilk tick'inde yapılır; aynı mum içinde tekrar giriş olmaz.
+    if (isNewCandle) {
+      this.lastAnalysis = analyze(this.candles.slice(0, -1), { entryTime: candle.time });
+      this.broker.tryOpen(this.lastAnalysis.signal, candle.close, candle.time);
+    }
 
     const tradeChanged = beforeTradeId !== (this.broker.trades[0]?.id ?? null);
     const eventChanged = beforeEventId !== (this.broker.events[0]?.id ?? null);
@@ -125,20 +137,48 @@ export class TradingService {
     });
     if (eventChanged) await this.notifyLatestEvent(beforeEventId);
     if (tradeChanged || accountChanged) await this.refreshPerformance();
+    this.scheduleRestSync();
     return this.getDashboardState();
+  }
+
+  private scheduleRestSync(): void {
+    if (this.restSyncRunning || Date.now() - this.lastRestSyncAt < this.restSyncSeconds * 1000) return;
+    this.restSyncRunning = true;
+    this.lastRestSyncAt = Date.now();
+    void this.syncOfficialCandles().finally(() => {
+      this.restSyncRunning = false;
+    });
+  }
+
+  // WebSocket tick'leri seyrek gelir (mumların ~%37'si tek tick). Kapanmış mumları Twelve Data
+  // REST'ten gelen resmi OHLC ile değiştirerek ATR ve kırılım kanalının gerçek volatiliteyi
+  // görmesini sağlar.
+  private async syncOfficialCandles(): Promise<void> {
+    try {
+      const official = await this.marketDataProvider.getRecentClosedCandles(REST_SYNC_CANDLES);
+      const indexByTime = new Map(this.candles.map((candle, index) => [candle.time, index]));
+      const forming = this.candles.at(-1)?.time ?? Number.POSITIVE_INFINITY;
+      for (const candle of official) {
+        const index = indexByTime.get(candle.time);
+        if (index !== undefined && candle.time < forming) this.candles[index] = candle;
+      }
+      await this.persistCandles(official, { overwrite: true });
+    } catch (error) {
+      console.warn(`Resmi mum senkronizasyonu basarisiz: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async registerPushDevice(token: string): Promise<void> {
     await this.pushService?.registerDevice(token);
   }
 
-  private async persistCandles(candles: Candle[]): Promise<void> {
+  private async persistCandles(candles: Candle[], options: { overwrite?: boolean } = {}): Promise<void> {
     const status = this.marketDataProvider.getStatus();
     await this.database.saveCandles(candles, {
       symbol: status.symbol,
       interval: status.interval,
       source: status.provider
-    });
+    }, options);
   }
 
   private async mergeWithStoredHistory(providerHistory: Candle[]): Promise<Candle[]> {
@@ -213,7 +253,7 @@ export class TradingService {
       openPnl,
       maxDrawdownPct: snapshot?.maxDrawdownPct ?? 0,
       dailyLossLimitHit: false,
-      riskPerTradePct: 5,
+      riskPerTradePct: RISK_PER_TRADE_PCT,
       maxLeverage: snapshot?.maxLeverage ?? 8
     };
   }

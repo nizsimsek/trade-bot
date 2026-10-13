@@ -16,6 +16,7 @@ export interface MarketDataConfig {
   symbol: string;
   interval: string;
   historyCandles: number;
+  restSyncSeconds: number;
   twelveData: {
     apiKey?: string;
     baseUrl: string;
@@ -53,6 +54,7 @@ export const serverConfig: ServerConfig = {
     symbol: process.env.MARKET_SYMBOL ?? "XAU/USD",
     interval: process.env.MARKET_INTERVAL ?? "1min",
     historyCandles: Number(process.env.MARKET_HISTORY_CANDLES ?? 260),
+    restSyncSeconds: Number(process.env.MARKET_REST_SYNC_SECONDS ?? 180),
     twelveData: {
       apiKey: process.env.TWELVE_DATA_API_KEY,
       baseUrl: process.env.TWELVE_DATA_BASE_URL ?? "https://api.twelvedata.com",

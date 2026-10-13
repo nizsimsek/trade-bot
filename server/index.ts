@@ -10,7 +10,13 @@ import { TradingService } from "./src/services/tradingService.js";
 const database = await createTradingDatabase(serverConfig.database);
 const marketDataProvider = createMarketDataProvider(serverConfig.marketData);
 const pushService = new ApnsPushService(serverConfig.push, database);
-const tradingService = new TradingService(marketDataProvider, serverConfig.marketData.historyCandles, database, pushService);
+const tradingService = new TradingService(
+  marketDataProvider,
+  serverConfig.marketData.historyCandles,
+  database,
+  pushService,
+  serverConfig.marketData.restSyncSeconds
+);
 await tradingService.initialize();
 
 const app = createApp({

@@ -30,53 +30,34 @@ export function rsi(values: number[], period = 14): number | null {
 
 export function atr(candles: Candle[], period = 14): number | null {
   if (candles.length <= period) return null;
-  const recent = candles.slice(-period);
-  const trueRanges = recent.map((candle, index) => {
-    const previousClose = candles[candles.length - period + index - 1]?.close ?? candle.close;
-    return Math.max(
+  // Wilder ATR: tum seri boyunca yumusatilir, son 14 mumun basit ortalamasindan daha kararlidir.
+  let current = 0;
+  for (let index = 1; index < candles.length; index += 1) {
+    const candle = candles[index];
+    const previousClose = candles[index - 1].close;
+    const trueRange = Math.max(
       candle.high - candle.low,
       Math.abs(candle.high - previousClose),
       Math.abs(candle.low - previousClose)
     );
-  });
-  return trueRanges.reduce((sum, value) => sum + value, 0) / period;
+    current = index <= period ? current + trueRange / period : (current * (period - 1) + trueRange) / period;
+  }
+  return current;
 }
 
-export function supportResistance(
+export function donchian(
   candles: Candle[],
-  lookback = 60
-): { support: number | null; supportTime: number | null; resistance: number | null; resistanceTime: number | null } {
-  if (candles.length < 20) return { support: null, supportTime: null, resistance: null, resistanceTime: null };
+  lookback = 20
+): { high: number; highTime: number; low: number; lowTime: number } | null {
+  if (candles.length < lookback) return null;
   const recent = candles.slice(-lookback);
-  const lows = recent.map((candle) => candle.low).sort((a, b) => a - b);
-  const highs = recent.map((candle) => candle.high).sort((a, b) => b - a);
-  const support = percentile(lows, 0.12);
-  const resistance = percentile(highs, 0.12);
+  let highest = recent[0];
+  let lowest = recent[0];
 
-  return {
-    support,
-    supportTime: findNearestCandleTime(recent, support, "low"),
-    resistance,
-    resistanceTime: findNearestCandleTime(recent, resistance, "high")
-  };
-}
-
-function percentile(sorted: number[], pct: number): number {
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.floor(sorted.length * pct)));
-  return sorted[index];
-}
-
-function findNearestCandleTime(candles: Candle[], price: number, field: "low" | "high"): number | null {
-  let nearest: Candle | null = null;
-  let nearestDistance = Number.POSITIVE_INFINITY;
-
-  for (const candle of candles) {
-    const distance = Math.abs(candle[field] - price);
-    if (distance <= nearestDistance) {
-      nearest = candle;
-      nearestDistance = distance;
-    }
+  for (const candle of recent) {
+    if (candle.high >= highest.high) highest = candle;
+    if (candle.low <= lowest.low) lowest = candle;
   }
 
-  return nearest?.time ?? null;
+  return { high: highest.high, highTime: highest.time, low: lowest.low, lowTime: lowest.time };
 }

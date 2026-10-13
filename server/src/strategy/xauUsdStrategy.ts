@@ -1,39 +1,62 @@
-import { atr, ema, rsi, supportResistance } from "../indicators/technicalIndicators.js";
+import { atr, donchian, ema, rsi } from "../indicators/technicalIndicators.js";
 import type { Candle, IndicatorSnapshot, StrategySignal } from "../domain/trading.js";
 
+// Trend yönünde momentum kırılımı. 1dk XAU/USD Twelve Data mumlarında (Tem-Eki 2026)
+// geri çekilme ve ortalamaya dönüş stratejileri zarar ettiği halde, trend yönündeki
+// kırılımlar dört ayrı dönemde de pozitif profit factor verdi.
 const SPREAD = 0.25;
-const TARGET_RISK_REWARD = 1.8;
-const MIN_RISK_REWARD = 1.2;
-const STRUCTURE_BUFFER_ATR = 0.2;
+const BREAKOUT_LOOKBACK = 20;
+const STOP_ATR = 1.5;
+const TARGET_ATR = 2.5;
+// SL mesafesi spread+slippage maliyetinin en az ~4 katı olmalı; yoksa maliyet kenarı yer.
+const MIN_STOP_DISTANCE = 1;
+const MAX_ENTRY_GAP_SECONDS = 30 * 60;
+export const MAX_HOLD_SECONDS = 60 * 60;
 
-export function analyze(candles: Candle[]): { indicators: IndicatorSnapshot; signal: StrategySignal } {
+interface AnalyzeOptions {
+  // Sinyal kapanmış mumlar üzerinde hesaplanır; giriş bir sonraki mumun başında yapılır.
+  entryTime?: number;
+}
+
+export function analyze(candles: Candle[], options: AnalyzeOptions = {}): { indicators: IndicatorSnapshot; signal: StrategySignal } {
   const closes = candles.map((candle) => candle.close);
   const current = candles[candles.length - 1];
   const ema50 = ema(closes, 50);
   const ema200 = ema(closes, 200);
   const rsi14 = rsi(closes, 14);
   const atr14 = atr(candles, 14);
-  const { support, supportTime, resistance, resistanceTime } = supportResistance(candles);
+  const channel = donchian(candles.slice(0, -1), BREAKOUT_LOOKBACK);
 
   const trend = getTrend(ema50, ema200);
   const volatility = getVolatility(atr14, current?.close);
-  const indicators: IndicatorSnapshot = { ema50, ema200, rsi14, atr14, support, supportTime, resistance, resistanceTime, trend, volatility };
+  const indicators: IndicatorSnapshot = {
+    ema50,
+    ema200,
+    rsi14,
+    atr14,
+    support: channel?.low ?? null,
+    supportTime: channel?.lowTime ?? null,
+    resistance: channel?.high ?? null,
+    resistanceTime: channel?.highTime ?? null,
+    trend,
+    volatility
+  };
 
   return {
     indicators,
-    signal: buildSignal(current, indicators)
+    signal: buildSignal(current, indicators, options.entryTime)
   };
 }
 
-function buildSignal(candle: Candle, indicators: IndicatorSnapshot): StrategySignal {
-  const { ema50, ema200, rsi14, atr14, support, resistance, trend, volatility } = indicators;
+function buildSignal(candle: Candle | undefined, indicators: IndicatorSnapshot, entryTime?: number): StrategySignal {
+  const { ema50, ema200, atr14, support, resistance, trend } = indicators;
 
-  if (!ema50 || !ema200 || !rsi14 || !atr14 || !support || !resistance) {
+  if (!candle || !ema50 || !ema200 || !atr14 || support === null || resistance === null) {
     return {
       action: "hold",
       confidence: 0,
       title: "Veri birikiyor",
-      summary: "Bot EMA200, ATR ve destek/direnç hesaplamak için yeterli mum bekliyor.",
+      summary: "Bot EMA200, ATR ve kırılım kanalını hesaplamak için yeterli mum bekliyor.",
       checklist: [
         { label: "Minimum veri", passed: false, value: "200+ mum gerekli" },
         { label: "İşlem", passed: false, value: "Bekle" }
@@ -42,120 +65,110 @@ function buildSignal(candle: Candle, indicators: IndicatorSnapshot): StrategySig
   }
 
   const price = candle.close;
-  const distanceToSupport = price - support;
-  const distanceToResistance = resistance - price;
-  const nearEma50 = Math.abs(price - ema50) <= atr14 * 0.75;
-  const bullishMomentum = rsi14 >= 48 && rsi14 <= 66;
-  const bearishMomentum = rsi14 <= 52 && rsi14 >= 34;
-  const enoughRoomLong = distanceToResistance > atr14 * 1.6;
-  const enoughRoomShort = distanceToSupport > atr14 * 1.6;
-  const normalVolatility = volatility === "normal" || volatility === "high";
+  const time = entryTime ?? candle.time + 60;
+  const stopDistance = atr14 * STOP_ATR;
+  const session = getSessionState(time, candle.time);
+  const bullishBreak = price > resistance;
+  const bearishBreak = price < support;
+  const enoughVolatility = stopDistance >= MIN_STOP_DISTANCE;
 
-  const longChecks = [
-    { label: "Trend", passed: trend === "bullish", value: labelTrend(trend) },
-    { label: "Pullback", passed: nearEma50, value: `Fiyat EMA50'ye ${formatDistance(price - ema50)} yakın` },
-    { label: "Momentum", passed: bullishMomentum, value: `RSI ${rsi14.toFixed(1)}` },
-    { label: "Direnç mesafesi", passed: enoughRoomLong, value: `$${distanceToResistance.toFixed(2)} alan` },
-    { label: "Volatilite", passed: normalVolatility, value: `ATR $${atr14.toFixed(2)}` }
+  const side = trend === "bullish" ? "long" : "short";
+  const checklist = [
+    { label: "Trend", passed: trend === "bullish" || trend === "bearish", value: labelTrend(trend) },
+    {
+      label: "Kırılım",
+      passed: side === "long" ? bullishBreak : bearishBreak,
+      value: side === "long"
+        ? `Kapanış ${formatDistance(price - resistance)} ${BREAKOUT_LOOKBACK} mum zirvesi`
+        : `Kapanış ${formatDistance(price - support)} ${BREAKOUT_LOOKBACK} mum dibi`
+    },
+    { label: "Volatilite", passed: enoughVolatility, value: `ATR $${atr14.toFixed(2)}, SL $${stopDistance.toFixed(2)}` },
+    { label: "Seans", passed: session.open, value: session.label }
   ];
+  const score = checklist.filter((check) => check.passed).length;
+  const confidence = Math.round((score / checklist.length) * 100);
 
-  const shortChecks = [
-    { label: "Trend", passed: trend === "bearish", value: labelTrend(trend) },
-    { label: "Pullback", passed: nearEma50, value: `Fiyat EMA50'ye ${formatDistance(price - ema50)} yakın` },
-    { label: "Momentum", passed: bearishMomentum, value: `RSI ${rsi14.toFixed(1)}` },
-    { label: "Destek mesafesi", passed: enoughRoomShort, value: `$${distanceToSupport.toFixed(2)} alan` },
-    { label: "Volatilite", passed: normalVolatility, value: `ATR $${atr14.toFixed(2)}` }
-  ];
+  if (score < checklist.length) {
+    return {
+      action: "hold",
+      confidence,
+      title: "İşlem yok",
+      summary: "Trend yönünde kırılım bekleniyor. Bot kapanmış mumlarla karar verir, mum içi gürültüye girmez.",
+      checklist
+    };
+  }
 
-  const longScore = longChecks.filter((check) => check.passed).length;
-  const shortScore = shortChecks.filter((check) => check.passed).length;
-
-  if (longScore >= 4 && longScore > shortScore) {
+  if (side === "long") {
     const entry = price + SPREAD / 2;
-    const stopLoss = Math.min(entry - atr14 * 1.25, support - atr14 * STRUCTURE_BUFFER_ATR);
-    const risk = entry - stopLoss;
-    const structureTarget = resistance - atr14 * STRUCTURE_BUFFER_ATR;
-    const takeProfit = Math.min(entry + risk * TARGET_RISK_REWARD, structureTarget);
-    const riskReward = (takeProfit - entry) / risk;
-    if (riskReward < MIN_RISK_REWARD) {
-      return holdSignal(longChecks, "Long hedefi dirençten önce yeterli risk/ödül bırakmıyor.");
-    }
     return {
       action: "buy",
-      confidence: Math.round((longScore / longChecks.length) * 100),
-      title: "Trend yönünde long fırsatı",
-      summary: "Altın yukarı trendde, fiyat EMA50 civarında dinlenmiş ve TP direnç bölgesinden önce konumlanıyor.",
-      checklist: longChecks,
-      proposedTrade: { side: "long", entry, stopLoss, takeProfit, riskReward }
+      confidence,
+      title: "Trend yönünde yukarı kırılım",
+      summary: `EMA50 > EMA200 ve fiyat son ${BREAKOUT_LOOKBACK} mumun zirvesini kırdı. SL ${STOP_ATR} ATR, TP ${TARGET_ATR} ATR.`,
+      checklist,
+      proposedTrade: {
+        side: "long",
+        entry,
+        stopLoss: entry - stopDistance,
+        takeProfit: entry + atr14 * TARGET_ATR,
+        riskReward: TARGET_ATR / STOP_ATR
+      }
     };
   }
 
-  if (shortScore >= 4 && shortScore > longScore) {
-    const entry = price - SPREAD / 2;
-    const stopLoss = Math.max(entry + atr14 * 1.25, resistance + atr14 * STRUCTURE_BUFFER_ATR);
-    const risk = stopLoss - entry;
-    const structureTarget = support + atr14 * STRUCTURE_BUFFER_ATR;
-    const takeProfit = Math.max(entry - risk * TARGET_RISK_REWARD, structureTarget);
-    const riskReward = (entry - takeProfit) / risk;
-    if (riskReward < MIN_RISK_REWARD) {
-      return holdSignal(shortChecks, "Short hedefi destekten önce yeterli risk/ödül bırakmıyor.");
+  const entry = price - SPREAD / 2;
+  return {
+    action: "sell",
+    confidence,
+    title: "Trend yönünde aşağı kırılım",
+    summary: `EMA50 < EMA200 ve fiyat son ${BREAKOUT_LOOKBACK} mumun dibini kırdı. SL ${STOP_ATR} ATR, TP ${TARGET_ATR} ATR.`,
+    checklist,
+    proposedTrade: {
+      side: "short",
+      entry,
+      stopLoss: entry + stopDistance,
+      takeProfit: entry - atr14 * TARGET_ATR,
+      riskReward: TARGET_ATR / STOP_ATR
     }
-    return {
-      action: "sell",
-      confidence: Math.round((shortScore / shortChecks.length) * 100),
-      title: "Trend yönünde short fırsatı",
-      summary: "Altın aşağı trendde, fiyat EMA50 bölgesine tepki vermiş ve TP destek bölgesinden önce konumlanıyor.",
-      checklist: shortChecks,
-      proposedTrade: { side: "short", entry, stopLoss, takeProfit, riskReward }
-    };
-  }
-
-  const bestChecks = pickBestChecklist([
-    { score: longScore, checks: longChecks },
-    { score: shortScore, checks: shortChecks }
-  ]);
-  return {
-    action: "hold",
-    confidence: Math.round((bestChecks.filter((check) => check.passed).length / bestChecks.length) * 100),
-    title: "İşlem yok",
-    summary: "Kurallar yeterince hizalanmadı. Bot düşük kaliteli setup yerine beklemeyi seçiyor.",
-    checklist: bestChecks
   };
 }
 
-function pickBestChecklist(candidates: Array<{ score: number; checks: StrategySignal["checklist"] }>) {
-  return candidates.reduce((best, current) => (current.score > best.score ? current : best)).checks;
+export function getSessionState(time: number, lastCandleTime = time): { open: boolean; label: string } {
+  const date = new Date(time * 1000);
+  const minuteOfDay = date.getUTCHours() * 60 + date.getUTCMinutes();
+  const weekday = date.getUTCDay();
+
+  if (time - lastCandleTime > MAX_ENTRY_GAP_SECONDS) return { open: false, label: "Veri boşluğu sonrası ilk mum" };
+  if (weekday === 6 || (weekday === 0 && minuteOfDay < 22 * 60 + 15)) return { open: false, label: "Hafta sonu kapalı" };
+  if (weekday === 5 && minuteOfDay >= 20 * 60) return { open: false, label: "Cuma kapanışı yakın" };
+  // 21:00 UTC günlük kapanış/rollover: spread açılır, fiyat boşluk yapar.
+  if (minuteOfDay >= 20 * 60 + 45 && minuteOfDay < 22 * 60 + 15) return { open: false, label: "Rollover saati" };
+  return { open: true, label: "Açık" };
 }
 
-function holdSignal(checklist: StrategySignal["checklist"], summary: string): StrategySignal {
-  return {
-    action: "hold",
-    confidence: Math.round((checklist.filter((check) => check.passed).length / checklist.length) * 100),
-    title: "İşlem yok",
-    summary,
-    checklist
-  };
+export function shouldForceClose(time: number): boolean {
+  const date = new Date(time * 1000);
+  return date.getUTCDay() === 5 && date.getUTCHours() * 60 + date.getUTCMinutes() >= 20 * 60 + 50;
 }
 
 function getTrend(ema50: number | null, ema200: number | null): IndicatorSnapshot["trend"] {
   if (!ema50 || !ema200) return "warming-up";
-  const gapPct = Math.abs(ema50 - ema200) / ema200;
-  if (gapPct < 0.0012) return "sideways";
+  if (ema50 === ema200) return "sideways";
   return ema50 > ema200 ? "bullish" : "bearish";
 }
 
 function getVolatility(atrValue: number | null, price?: number): IndicatorSnapshot["volatility"] {
   if (!atrValue || !price) return "warming-up";
   const atrPct = atrValue / price;
-  if (atrPct < 0.00045) return "low";
-  if (atrPct > 0.0015) return "high";
+  if (atrPct < 0.00015) return "low";
+  if (atrPct > 0.0006) return "high";
   return "normal";
 }
 
 function labelTrend(trend: IndicatorSnapshot["trend"]): string {
   const labels = {
-    bullish: "Yukarı",
-    bearish: "Aşağı",
+    bullish: "Yukarı (EMA50 > EMA200)",
+    bearish: "Aşağı (EMA50 < EMA200)",
     sideways: "Yatay",
     "warming-up": "Hesaplanıyor"
   };

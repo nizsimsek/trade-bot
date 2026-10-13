@@ -52,18 +52,19 @@ export class MySqlTradingDatabase implements TradingDatabase {
     this.connected = true;
   }
 
-  async saveCandles(candles: Candle[], context: CandleWriteContext): Promise<void> {
+  async saveCandles(candles: Candle[], context: CandleWriteContext, options: { overwrite?: boolean } = {}): Promise<void> {
     if (!candles.length) return;
     const pool = this.requirePool();
+    // overwrite: Twelve Data REST'ten gelen resmi kapanmis mumlar, WebSocket tick'lerinden
+    // olusturulan eksik mumlarin yerine birebir yazilir.
+    const updateClause = options.overwrite
+      ? `open = VALUES(open), high = VALUES(high), low = VALUES(low), close = VALUES(close), volume = VALUES(volume)`
+      : `high = GREATEST(high, VALUES(high)), low = LEAST(low, VALUES(low)), close = VALUES(close), volume = VALUES(volume)`;
     await pool.query(
-      `INSERT IGNORE INTO market_candles
+      `INSERT INTO market_candles
         (symbol, interval_name, source, time, open, high, low, close, volume)
        VALUES ?
-       ON DUPLICATE KEY UPDATE
-         high = GREATEST(high, VALUES(high)),
-         low = LEAST(low, VALUES(low)),
-         close = VALUES(close),
-         volume = VALUES(volume)`,
+       ON DUPLICATE KEY UPDATE ${updateClause}`,
       [candles.map((candle) => [
         context.symbol,
         context.interval,
@@ -242,7 +243,7 @@ export class MySqlTradingDatabase implements TradingDatabase {
       reason: String(row.reason),
       pnl: Number(row.pnl),
       pnlPct: Number(row.pnl_pct),
-      outcome: row.outcome === "take-profit" ? "take-profit" : "stop-loss",
+      outcome: parseOutcome(row.outcome),
       durationCandles: Number(row.duration_candles)
     }));
   }
@@ -477,4 +478,9 @@ export class MySqlTradingDatabase implements TradingDatabase {
     }
     return "system";
   }
+}
+
+function parseOutcome(outcome: unknown): Trade["outcome"] {
+  if (outcome === "take-profit" || outcome === "time-exit") return outcome;
+  return "stop-loss";
 }

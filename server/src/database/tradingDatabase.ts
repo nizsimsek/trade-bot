@@ -9,7 +9,7 @@ export interface CandleWriteContext {
 export interface TradingDatabase {
   getStatus(): DatabaseStatus;
   initialize(): Promise<void>;
-  saveCandles(candles: Candle[], context: CandleWriteContext): Promise<void>;
+  saveCandles(candles: Candle[], context: CandleWriteContext, options?: { overwrite?: boolean }): Promise<void>;
   loadRecentCandles(context: CandleWriteContext, limit: number): Promise<Candle[]>;
   saveTrades(trades: Trade[]): Promise<void>;
   saveEvents(events: BotEvent[]): Promise<void>;
